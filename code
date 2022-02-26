@@ -1,0 +1,354 @@
+In [1]
+#decompress the dataset
+!cd data &&\
+unzip -qo /home/aistudio/data/data57776/Chinese\ Medicine.zip &&\
+rm -r __MACOSX
+
+In [2]
+# tree command to view the directory structure of the dataset
+!tree /home/aistudio/data/Chinese\ Medicine -d
+
+In [3]
+# Visual display of Chinese herbal medicine dataset samples
+import cv2
+import matplotlib.pyplot as plt
+%matplotlib inline
+
+plt.title("dangshen")
+plt.imshow(cv2.imread("/home/aistudio/data/Chinese Medicine/dangshen/dangshen_65.jpg")[:, :, ::-1])
+
+In [4]
+# Divide training set and test set and generate data list
+def get_data_list(target_path,train_list_path,eval_list_path):
+    trainer_list=[]
+    eval_list=[]
+    class_detail = [] #Store all categories of information
+    data_list_path=target_path+"Chinese Medicine/" #Get the folder names saved by all categories
+    class_dirs = os.listdir(data_list_path)
+    all_class_images = 0
+    class_label=0 #Store the category label
+    class_num = 0
+    #Read each category, ['dangshen','huaihua','gouqi','baihe', 'jinyinhua']
+    for class_dir in class_dirs:
+        if class_dir != ".DS_Store":
+            class_num += 1
+            class_detail_list = {}
+            eval_sum = 0
+            trainer_sum = 0
+            class_sum = 0
+            path = data_list_path + class_dir #Get the category path
+            # get all images
+            img_paths = os.listdir(path)
+            # loop through each image in the folder
+            for img_path in img_paths:
+                name_path = path + '/' + img_path
+                if class_sum % 8 == 0: # Take one of every 8 pictures for verification data
+                    eval_sum += 1
+                    eval_list.append(name_path + "\t%d" % class_label + "\n")
+                else:
+                    trainer_sum += 1
+                    trainer_list.append(name_path + "\t%d" % class_label + "\n")
+                class_sum += 1
+                all_class_images += 1
+            class_detail_list['class_name'] = class_dir
+            class_detail_list['class_all_images'] = trainer_sum + eval_sum
+            class_detail_list['class_label'] = class_label
+            class_detail_list['class_trainer_images'] = trainer_sum
+            class_detail_list['class_eval_images'] = eval_sum
+            class_detail.append(class_detail_list)
+            #Initialize tag list
+            train_parameters['label_dict'][str(class_label)] = class_dir
+            class_label += 1
+    
+    #Initialize the number of categories
+    train_parameters['class_num'] = class_num
+
+    #out of order
+    random.shuffle(eval_list)
+    with open(eval_list_path, 'a') as f:
+        for eval_image in eval_list:
+            f.write(eval_image)
+            
+    random.shuffle(trainer_list)
+    with open(train_list_path, 'a') as f2:
+        for train_image in trainer_list:
+            f2.write(train_image)
+
+    # Description of the json file information
+    readjson = {}
+    readjson['all_class_name'] = data_list_path #File parent directory
+    readjson['all_class_images'] = all_class_images
+    readjson['class_detail'] = class_detail
+    jsons = json.dumps(readjson, sort_keys=True, indent=4, separators=(',', ': '))
+    with open(train_parameters['readme_path'],'w') as f:
+        f.write(jsons)
+    print ('Data list has been generated')
+    
+In [5]
+#Definition of related paths
+train_parameters = {
+     "target_path":"/home/aistudio/data/",
+     "train_list_path": "/home/aistudio/data/train.txt",
+     "eval_list_path": "/home/aistudio/data/eval.txt",
+     "label_dict":{},
+     "readme_path": "/home/aistudio/data/readme.json",
+     "class_num": -1,
+}
+
+In [6]
+import os
+import random
+import json
+
+target_path=train_parameters['target_path']
+train_list_path=train_parameters['train_list_path']
+eval_list_path=train_parameters['eval_list_path']
+
+#Initialize when reading file
+with open(train_list_path, 'w') as f:
+     f.seek(0)
+     f.truncate()
+with open(eval_list_path, 'w') as f:
+     f.seek(0)
+     f.truncate()
+
+#generate data list
+get_data_list(target_path,train_list_path,eval_list_path)
+
+In [7]
+from paddle.io import Dataset
+
+# define the data reader
+class dataset(Dataset):
+    def __init__(self, data_path, mode='train'):
+        super().__init__()
+        self.data_path = data_path
+        self.img_paths = []
+        self.labels = []
+
+        if mode == 'train': #Divided into training set read and test set read
+            with open(os.path.join(self.data_path, "train.txt"), "r", encoding="utf-8") as f:
+                self.info = f.readlines()
+            for img_info in self.info:
+                img_path, label = img_info.strip().split('\t')
+                self.img_paths.append(img_path)
+                self.labels.append(int(label))
+
+        else:
+            with open(os.path.join(self.data_path, "eval.txt"), "r", encoding="utf-8") as f:
+                self.info = f.readlines()
+            for img_info in self.info:
+                img_path, label = img_info.strip().split('\t')
+                self.img_paths.append(img_path)
+                self.labels.append(int(label))
+
+    def __getitem__(self, index):
+        img_path = self.img_paths[index]
+        img = Image.open(img_path)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        img = img.resize((224, 224), Image.BILINEAR)
+        img = np.array(img).astype('float32')
+        img = img.transpose((2, 0, 1)) / 255
+        label = self.labels[index]
+        label = np.array([label], dtype="int64")
+        return img, label
+
+    def print_sample(self, index: int = 0):
+        print("File name", self.img_paths[index], "\tlabel value", self.labels[index])
+
+    def __len__(self):
+        return len(self.img_paths)
+        
+In [8]
+import paddle
+
+#training data loading
+train_dataset = dataset('/home/aistudio/data',mode='train')
+train_loader = paddle.io.DataLoader(train_dataset, batch_size=32, shuffle=True)
+#Evaluation data loading
+eval_dataset = dataset('/home/aistudio/data',mode='eval')
+eval_loader = paddle.io.DataLoader(eval_dataset, batch_size = 8, shuffle=False)
+
+In [9]
+# Define the convolution pooling network
+class ConvPool(paddle.nn.Layer):
+    def __init__(self,
+                 num_channels,
+                 num_filters,
+                 filter_size,
+                 pool_size,
+                 pool_stride,
+                 groups,
+                 conv_stride=1,
+                 conv_padding=1,
+                 ):
+        super(ConvPool, self).__init__()
+
+        for i in range(groups): #groups represents the number of convolutional layers
+            self.add_sublayer( #Add sublayer instance
+                'bb_%d' % i,
+                paddle.nn.Conv2D(
+                in_channels=num_channels, #Number of channels
+                out_channels=num_filters, #Number of convolution kernels
+                kernel_size=filter_size, #convolution kernel size
+                stride=conv_stride, #step size
+                padding = conv_padding, #padding
+                )
+            )
+            self.add_sublayer(
+                'relu%d' % i,
+                paddle.nn.ReLU()
+            )
+            num_channels = num_filters
+            
+
+        self.add_sublayer(
+            'Maxpool',
+            paddle.nn.MaxPool2D(
+            kernel_size=pool_size, #pool kernel size
+            stride=pool_stride #pooling step size
+            )
+        )
+
+    def forward(self, inputs):
+        x = inputs
+        for prefix, sub_layer in self.named_children():
+            # print(prefix, sub_layer)
+            x = sub_layer(x)
+        return x
+        
+In [10]
+# VGG network
+class VGGNet(paddle.nn.Layer):
+    def __init__(self):
+        super(VGGNet, self).__init__()
+        # 5 convolution pooling operations
+        self.convpool01 = ConvPool(
+            3, 64, 3, 2, 2, 2) #3: number of channels, 64: number of convolution kernels, 3: convolution kernel size, 2: pooling kernel size, 2: pooling step size, 2: continuous Number of convolutions
+        self.convpool02 = ConvPool(
+            64, 128, 3, 2, 2, 2)
+        self.convpool03 = ConvPool(
+            128, 256, 3, 2, 2, 3)
+        self.convpool04 = ConvPool(
+            256, 512, 3, 2, 2, 3)
+        self.convpool05 = ConvPool(
+            512, 512, 3, 2, 2, 3)
+        self.pool_5_shape = 512 * 7 * 7
+        # Three fully connected layers
+        self.fc01 = paddle.nn.Linear(self.pool_5_shape, 4096)
+        self.drop1 = paddle.nn.Dropout(p=0.5)
+        self.fc02 = paddle.nn.Linear(4096, 4096)
+        self.drop2 = paddle.nn.Dropout(p=0.5)
+        self.fc03 = paddle.nn.Linear(4096, train_parameters['class_num'])
+
+    def forward(self, inputs, label=None):
+        # print('input_shape:', inputs.shape) #[8, 3, 224, 224]
+        """Forward calculation"""
+        out = self.convpool01(inputs)
+        # print('convpool01_shape:', out.shape) #[8, 64, 112, 112]
+        out = self.convpool02(out)
+        # print('convpool02_shape:', out.shape) #[8, 128, 56, 56]
+        out = self.convpool03(out)
+        # print('convpool03_shape:', out.shape) #[8, 256, 28, 28]
+        out = self.convpool04(out)
+        # print('convpool04_shape:', out.shape) #[8, 512, 14, 14]
+        out = self.convpool05(out)
+        # print('convpool05_shape:', out.shape) #[8, 512, 7, 7]
+
+        out = paddle.reshape(out, shape=[-1, 512*7*7])
+        out = self.fc01(out)
+        out = self.drop1(out)
+        out = self.fc02(out)
+        out = self.drop2(out)
+        out = self.fc03(out)
+        
+        if label is not None:
+            acc = paddle.metric.accuracy(input=out, label=label)
+            return out, acc
+        else:
+            return out
+             
+In [11]
+# Line chart, used to observe the trend of loss and acc during training
+def draw_process(title,color,iters,data,label):
+     plt.title(title, fontsize=24)
+     plt.xlabel("iter", fontsize=20)
+     plt.ylabel(label, fontsize=20)
+     plt.plot(iters, data, color=color, label=label)
+     plt.legend()
+     plt.grid()
+     plt.show()
+     
+In [12]
+# Parameter configuration, use update to update the dictionary to retain the parameters configured in the previous data set preparation stage,
+train_parameters.update({
+     "input_size": [3, 224, 224], #The shape of the input image
+     "num_epochs": 35, #training epochs
+     "skip_steps": 10, #Interval of output log during training
+     "save_steps": 100, #The interval for saving model parameters during training
+     "learning_strategy": { #Optimize function related configuration
+         "lr": 0.0001 #hyperparameter learning rate
+     },
+     "checkpoints": "/home/aistudio/work/checkpoints" #Saved path
+})
+
+In [13]
+from PIL import Image
+import numpy as np
+import matplotlib.pyplot as plt
+import sys
+
+model = VGGNet()
+model.train()
+# configure the loss function
+cross_entropy = paddle.nn.CrossEntropyLoss()
+# Configure parameter optimizer
+optimizer = paddle.optimizer.Adam(learning_rate=train_parameters['learning_strategy']['lr'],
+                                  parameters=model.parameters())
+
+steps = 0
+Iters, total_loss, total_acc = [], [], []
+
+for epo in range(train_parameters['num_epochs']):
+    for _, data in enumerate(train_loader()):
+        steps += 1
+        x_data = data[0]
+        y_data = data[1]
+        predicts, acc = model(x_data, y_data)
+        loss = cross_entropy(predicts, y_data)
+        loss.backward()
+        optimizer.step()
+        optimizer.clear_grad()
+        if steps % train_parameters["skip_steps"] == 0:
+            Iters.append(steps)
+            total_loss.append(loss.numpy()[0])
+            total_acc.append(acc.numpy()[0])
+            # print intermediate process
+            print('epo: {}, step: {}, loss is: {}, acc is: {}'\
+                  .format(epo, steps, loss.numpy(), acc.numpy()))
+        #Save model parameters
+        if steps % train_parameters["save_steps"] == 0:
+            save_path = train_parameters["checkpoints"]+"/"+"save_dir_" + str(steps) + '.pdparams'
+            print('save model to: ' + save_path)
+            paddle.save(model.state_dict(),save_path)
+paddle.save(model.state_dict(),train_parameters["checkpoints"]+"/"+"save_dir_final.pdparams")
+draw_process("training loss","red",Iters,total_loss,"training loss")
+draw_process("training acc","green",Iters,total_acc,"training acc")
+
+In [14]
+# model evaluation
+# Load the last model saved during training
+model__state_dict = paddle.load('work/checkpoints/save_dir_final.pdparams')
+model_eval = VGGNet()
+model_eval.set_state_dict(model__state_dict)
+model_eval.eval()
+accs = []
+# start evaluation
+for _, data in enumerate(eval_loader()):
+     x_data = data[0]
+     y_data = data[1]
+     predicts = model_eval(x_data)
+     acc = paddle.metric.accuracy(predicts, y_data)
+     accs.append(acc.numpy()[0])
+print('The accuracy of the model on the validation set is: ',np.mean(accs))
