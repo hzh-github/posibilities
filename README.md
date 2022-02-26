@@ -6,12 +6,12 @@ As General Secretary Xi Jinping said: "Traditional Chinese medicine is the treas
 
 The "Chinese herbal medicine identification" data set contains 5 categories, namely honeysuckle, Codonopsis, lily, wolfberry, and locust flower, with a total of 902 pictures. You can obtain more detailed data information by running the get_data_list function in the code, as shown in the figure
 
-![Dataset Details](https://gitee.com/posibilities/work/raw/master/data_list.png)
+![Dataset Details](https://github.com/hzh-github/posibilities/blob/main/Dataset_Details.png)
 
 ### Three, model introduction
 
 Chinese herbal medicine identification by VGG network. VGG is one of the most popular CNN models. It was proposed in the paper "Very Deep Convolutional Networks For Large-scale Image Recognition" by Simonyan and Zisserman at the ICLR 2015 conference in 2014. Geometry Group. It consists of 5 layers of convolution layers, 3 layers of fully connected layers, and softmax output layers. By increasing the depth of the network to improve the final performance of the network, the error rate is greatly reduced.
 
-![VGG model](https://gitee.com/posibilities/work/raw/master/VGG_introduction_en.png)
+![VGG model](https://github.com/hzh-github/posibilities/blob/main/VGG_model.png)
 
  _Image source: Dahua CNN classic model: VGGNet_
